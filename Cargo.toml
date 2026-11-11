@@ -1,11 +1,21 @@
 [package]
 name = "flappy_bird"
 version = "0.1.0"
-edition = "2021"
+edition = "2026"
 
 [dependencies]
 # raylib = { version = "6.0", default-features = false, features = ["opengl_21", "GLFW_BUILD_X11", "full"] }
-raylib = "6.0"
+raylib = { 
+    version = "6.0", 
+    default-features = false, 
+    features = [
+        "opengl_21",
+        "GLFW_BUILD_X11",
+        "SUPPORT_MODULE_RSHAPES",
+        "SUPPORT_MODULE_RTEXT",
+        "SUPPORT_MODULE_RTEXTURES",  # necesario para la textura del suelo y la fuente por defecto
+    ] 
+}
 # rand = "0.8"
 
 [profile.release]
