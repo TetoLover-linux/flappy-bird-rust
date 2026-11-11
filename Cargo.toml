@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-raylib = { version = "6.0", default-features = false, features = ["opengl_21", "GLFW_BUILD_X11"] }
+raylib = { version = "6.0", default-features = false, features = ["opengl_21", "GLFW_BUILD_X11", "full"] }
 rand = "0.8"
