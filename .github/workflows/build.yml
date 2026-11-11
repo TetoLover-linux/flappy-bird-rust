@@ -1,0 +1,97 @@
+name: Build Cross-Platform
+
+on:
+  workflow_dispatch: 
+    push:
+      branches: [ main, master ]
+    pull_request:
+      branches: [ main, master ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: flappy_bird-linux
+            binary_path: target/release/flappy_bird
+          - os: macos-latest
+            artifact_name: flappy_bird-macos
+            binary_path: target/release/flappy_bird
+          - os: windows-latest
+            artifact_name: flappy_bird-windows.exe
+            binary_path: target/release/flappy_bird.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Configuración de Rust (toolchain estable) ────────────────────────
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # ── Caché de Cargo para acelerar builds posteriores ──────────────────
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      # ── Dependencias específicas de Linux (Debian/Ubuntu) ────────────────
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            cmake \
+            llvm-dev \
+            libclang-dev \
+            clang
+
+      # ── Configuración de MSVC en Windows ─────────────────────────────────
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # ── Instalación de LLVM en Windows (necesario para bindgen) ──────────
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18.1.8"
+          directory: ${{ runner.temp }}/llvm
+
+      # ── Instalación de LLVM en macOS (bindgen) ───────────────────────────
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+
+      # ── Compilación del proyecto en modo release ─────────────────────────
+      - name: Build project
+        run: cargo build --release --verbose
+
+      # ── Subida del binario como artefacto descargable ────────────────────
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.binary_path }}
+          if-no-files-found: error
