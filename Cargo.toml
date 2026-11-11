@@ -4,5 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-raylib = { version = "6.0", default-features = false, features = ["opengl_21", "GLFW_BUILD_X11", "full"] }
-rand = "0.8"
+# raylib = { version = "6.0", default-features = false, features = ["opengl_21", "GLFW_BUILD_X11", "full"] }
+raylib = "6.0"
+# rand = "0.8"
+
+[profile.release]
+lto = "fat"          # Link-Time Optimization completa entre todos los crates
+codegen-units = 1    # Un solo unit de codegen: máxima optimización posible
+panic = "abort"      # Elimina el coste de unwinding; binario más pequeño y rápido
+strip = "symbols"    # Elimina todos los símbolos de depuración
+opt-level = "z"      # Prioriza tamaño agresivamente (usa "s" si prefieres un equilibrio)
+overflow-checks = false
+debug = false
+incremental = false
+rpath = false
