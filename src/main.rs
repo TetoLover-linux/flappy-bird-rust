@@ -324,7 +324,7 @@ impl Game {
 
         // ── Suelo cacheado: 1 quad en vez de ~20 rectángulos ─────────────────
         d.draw_texture_rec(
-            self.ground_texture.texture,
+            &self.ground_texture,         // ← RenderTexture2D implementa AsRef<Texture2D>
             Rectangle::new(
                 self.ground_scroll,
                 0.0,
