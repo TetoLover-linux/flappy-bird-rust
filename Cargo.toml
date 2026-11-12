@@ -3,28 +3,54 @@ name = "flappy_bird"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-# raylib = { version = "6.0", default-features = false, features = ["opengl_21", "GLFW_BUILD_X11", "full"] }
-raylib = { 
-    version = "6.0", 
-    default-features = false, 
-    features = [
-        "opengl_21",
-        "GLFW_BUILD_X11",
-        "SUPPORT_MODULE_RSHAPES",
-        "SUPPORT_MODULE_RTEXT",
-        "SUPPORT_MODULE_RTEXTURES",  # necesario para la textura del suelo y la fuente por defecto
-    ] 
-}
-# rand = "0.8"
+# ─────────────────────────────────────────────────────────────────────────────
+# El MISMO archivo (src/main.rs) se compila dos veces:
+#   * bin    → ejecutable de escritorio (Linux / macOS / Windows)
+#   * cdylib → libflappy_bird.so, requerido por cargo quad-apk para Android
+#     (la macro #[macroquad::main] exporta android_main automáticamente).
+# ─────────────────────────────────────────────────────────────────────────────
+[lib]
+name = "flappy_bird"
+crate-type = ["cdylib", "rlib"]
+path = "src/main.rs"
 
+[[bin]]
+name = "flappy_bird"
+path = "src/main.rs"
+
+[dependencies]
+# macroquad es la alternativa con soporte Android nativo (raylib-rs no soporta Android).
+macroquad = "0.4"
+
+# ── Optimización release (se aplica también al .so de Android) ──────────────
 [profile.release]
 lto = "fat"          # Link-Time Optimization completa entre todos los crates
 codegen-units = 1    # Un solo unit de codegen: máxima optimización posible
 panic = "abort"      # Elimina el coste de unwinding; binario más pequeño y rápido
 strip = "symbols"    # Elimina todos los símbolos de depuración
-opt-level = "z"      # Prioriza tamaño agresivamente (usa "s" si prefieres un equilibrio)
+opt-level = "z"      # Prioriza tamaño agresivamente (ideal para APK)
 overflow-checks = false
 debug = false
 incremental = false
 rpath = false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Metadatos para cargo quad-apk (empaquetado a APK)
+# ─────────────────────────────────────────────────────────────────────────────
+[package.metadata.android]
+package = "com.tetolover.flappybird"
+apk_name = "flappy-bird"
+# ARM64 (dispositivos modernos) + ARMv7 (teléfonos viejos) + x86_64 (emulador).
+# Tip: si querés un APK más liviano, dejá solo "aarch64-linux-android".
+build_targets = ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 24     # Android 7.0+
+target_sdk_version = 34  # Requisito de Play Store (API 34)
+
+[package.metadata.android.activity_attributes]
+"android:exported" = "true"  # Obligatorio para targetSdk >= 31
+"android:label" = "Flappy Bird"
+# Juego vertical: evita rotaciones que reiniciarían el loop
+"android:screenOrientation" = "portrait"
+"android:configChanges" = "orientation|keyboardHidden|keyboard|navigation|screenSize|uiMode"
