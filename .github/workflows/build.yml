@@ -102,9 +102,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # ── SDK Android (el runner ubuntu ya trae ANDROID_HOME preinstalado) ─
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # ── SDK Android ──────────────────────────────────────────────────────
+      # NO usar android-actions/setup-android@v3: intenta instalar el paquete
+      # obsoleto "tools" (eliminado por Google) y falla con exit code 1.
+      # El runner ubuntu ya trae ANDROID_HOME y sdkmanager preinstalados.
+      - name: Verify Android SDK (preinstalled)
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --version
 
       # ── NDK + build-tools con versiones fijadas ──────────────────────────
       - name: Install NDK and build-tools
