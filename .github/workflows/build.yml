@@ -1,7 +1,7 @@
 name: Build Cross-Platform
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
   push:
     branches: [ main, master ]
   pull_request:
@@ -10,8 +10,17 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Versión de NDK fijada para builds reproducibles (r25b, la recomendada
+  # por macroquad; cargo quad-apk la usa para compilar los .so de cada ABI)
+  ANDROID_NDK_VERSION: "25.2.9519653"
+  ANDROID_BUILD_TOOLS: "34.0.0"
 
 jobs:
+  # ════════════════════════════════════════════════════════════════════════════
+  # Escritorio: Linux / macOS / Windows
+  # (macroquad/miniquad carga X11/OpenGL/ALSA con dlopen en runtime:
+  #  ya NO hacen falta headers de X11, cmake, LLVM ni libclang)
+  # ════════════════════════════════════════════════════════════════════════════
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -45,45 +54,6 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      # ── Dependencias específicas de Linux (Debian/Ubuntu) ────────────────
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libasound2-dev \
-            libx11-dev \
-            libxrandr-dev \
-            libxi-dev \
-            libxcursor-dev \
-            libxinerama-dev \
-            libgl1-mesa-dev \
-            libglu1-mesa-dev \
-            cmake \
-            llvm-dev \
-            libclang-dev \
-            clang
-
-      # ── Configuración de MSVC en Windows ─────────────────────────────────
-      - name: Setup MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # ── Instalación de LLVM en Windows (necesario para bindgen) ──────────
-      - name: Install LLVM (Windows)
-        if: runner.os == 'Windows'
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "18.1.8"
-          directory: ${{ runner.temp }}/llvm
-
-      # ── Instalación de LLVM en macOS (bindgen) ───────────────────────────
-      - name: Install LLVM (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install llvm
-          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
-
       # ── Compilación del proyecto en modo release ─────────────────────────
       - name: Build project
         run: cargo build --release --verbose
@@ -94,4 +64,102 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.binary_path }}
+          if-no-files-found: error
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Android: compila el crate como cdylib para cada ABI con el NDK y empaqueta
+  # un APK universal con cargo quad-apk. El APK se firma con un keystore de
+  # debug generado en el runner → queda listo para "sideload" (instalar
+  # directo en el teléfono). Para Play Store se requiere firma de release.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Rust estable + los targets Android que declara Cargo.toml ────────
+      - name: Install Rust toolchain (Android targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            aarch64-linux-android
+            armv7-linux-androideabi
+            x86_64-linux-android
+
+      # ── Caché de Cargo separada por plataforma (incluye los .so) ─────────
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: android
+
+      # ── JDK (necesario para d8/aapt2 del empaquetado del APK) ────────────
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ── SDK Android (el runner ubuntu ya trae ANDROID_HOME preinstalado) ─
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ── NDK + build-tools con versiones fijadas ──────────────────────────
+      - name: Install NDK and build-tools
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;${{ env.ANDROID_NDK_VERSION }}" \
+            "platforms;android-34" \
+            "build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
+
+      - name: Configure Android environment
+        run: |
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${{ env.ANDROID_NDK_VERSION }}" >> "$GITHUB_ENV"
+          echo "${ANDROID_HOME}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}" >> "$GITHUB_PATH"
+
+      # ── Herramienta oficial de macroquad para empaquetar APK ─────────────
+      - name: Install cargo-quad-apk
+        run: cargo install cargo-quad-apk --locked
+
+      # ── Compila las 3 ABIs (arm64, armv7, x86_64) y arma el APK universal ─
+      - name: Build APK (release, universal)
+        run: cargo quad-apk build --release
+
+      # ── Firma el APK (debug key generada en el runner) para sideload ─────
+      - name: Sign APK
+        run: |
+          set -euo pipefail
+          BT="${ANDROID_HOME}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}"
+          APK_DIR="target/android-artifacts/release/apk"
+          echo "── Artefactos generados:"
+          ls -la "${APK_DIR}"
+          RAW_APK="${APK_DIR}/unsigned.apk"
+          if [ ! -f "$RAW_APK" ]; then
+            RAW_APK="$(ls "${APK_DIR}"/*.apk | head -n 1)"
+          fi
+          echo "── Firmando: ${RAW_APK}"
+          KEYSTORE="${RUNNER_TEMP}/flappy-debug.keystore"
+          keytool -genkeypair -v \
+            -keystore "${KEYSTORE}" \
+            -storepass android -alias flappybird -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Flappy Bird Debug, OU=CI, O=TetoLover-linux, C=AR"
+          # zipalign antes de firmar (requisito del esquema de firma v2)
+          "${BT}/zipalign" -f 4 "${RAW_APK}" "${RUNNER_TEMP}/aligned.apk"
+          "${BT}/apksigner" sign \
+            --ks "${KEYSTORE}" --ks-pass pass:android --key-pass pass:android \
+            --out "flappy_bird-android.apk" "${RUNNER_TEMP}/aligned.apk"
+          "${BT}/apksigner" verify --print-certs "flappy_bird-android.apk"
+          echo "── APK final:"
+          ls -la flappy_bird-android.apk
+
+      # ── Subida del APK como artefacto descargable ────────────────────────
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flappy_bird-android-apk
+          path: flappy_bird-android.apk
           if-no-files-found: error
