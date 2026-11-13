@@ -139,8 +139,9 @@ impl Pipe {
     }
     fn collides_with(&self, bird: &Bird) -> bool {
         let bird_rect = bird.get_collision_rect();
-        bird_rect.check_collision_recs(self.get_top_rect())
-            || bird_rect.check_collision_recs(self.get_bottom_rect())
+        // ✅ Corrección 1: check_collision_recs exige &Rectangle en sola-raylib
+        bird_rect.check_collision_recs(&self.get_top_rect())
+            || bird_rect.check_collision_recs(&self.get_bottom_rect())
     }
 }
 
@@ -320,10 +321,11 @@ impl Game {
         }
 
         // ── Suelo cacheado: se dibuja la textura interna del RenderTexture2D
-        //    Acceso explícito a `.texture` para evitar ambigüedades de
-        //    conversión entre versiones de la API.
+        //    ✅ Corrección 2: usar `.texture()` (trait RaylibRenderTexture2D)
+        //    en lugar del campo crudo `.texture`, que es de tipo FFI `Texture`
+        //    y no implementa `AsRef<Texture2D>`.
         d.draw_texture_rec(
-            &self.ground_texture.texture,
+            self.ground_texture.texture(),
             Rectangle::new(
                 self.ground_scroll,
                 0.0,
