@@ -1,53 +1,42 @@
 name: Build Cross-Platform
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
   # push:
-  #  branches: [ main, master ]
+  #   branches: [ main, master ]
   # pull_request:
-  #  branches: [ main, master ]
+  #   branches: [ main, master ]
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  ANDROID_NDK_VERSION: "25.2.9519653"
+  ANDROID_BUILD_TOOLS: "34.0.0"
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact_name: flappy_bird-linux
-            binary_path: target/release/flappy_bird
-          - os: macos-latest
-            artifact_name: flappy_bird-macos
-            binary_path: target/release/flappy_bird
-          - os: windows-latest
-            artifact_name: flappy_bird-windows.exe
-            binary_path: target/release/flappy_bird.exe
-
+  # ════════════════════════════════════════════════════════════════════════════
+  # Escritorio: solo Linux (Ubuntu)
+  # ════════════════════════════════════════════════════════════════════════════
+  build-linux:
+    name: Build on Ubuntu
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── Configuración de Rust (toolchain estable) ────────────────────────
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      # ── Caché de Cargo para acelerar builds posteriores ──────────────────
       - name: Cache Cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
 
-      # ── Dependencias específicas de Linux (Debian/Ubuntu) ────────────────
+      # Dependencias de sistema para sola-raylib en Linux.
+      # Incluye GL, audio, X11 y herramientas de compilación (cmake, clang).
       - name: Install Linux dependencies
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -64,34 +53,124 @@ jobs:
             libclang-dev \
             clang
 
-      # ── Configuración de MSVC en Windows ─────────────────────────────────
-      - name: Setup MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # ── Instalación de LLVM en Windows (necesario para bindgen) ──────────
-      - name: Install LLVM (Windows)
-        if: runner.os == 'Windows'
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "18.1.8"
-          directory: ${{ runner.temp }}/llvm
-
-      # ── Instalación de LLVM en macOS (bindgen) ───────────────────────────
-      - name: Install LLVM (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install llvm
-          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
-
-      # ── Compilación del proyecto en modo release ─────────────────────────
-      - name: Build project
+      - name: Build project (release)
         run: cargo build --release --verbose
 
-      # ── Subida del binario como artefacto descargable ────────────────────
-      - name: Upload binary artifact
+      - name: Upload Linux binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.binary_path }}
+          name: flappy_bird-linux
+          path: target/release/flappy_bird
+          if-no-files-found: error
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Android: compila cdylib y empaqueta un APK universal con cargo-quad-apk.
+  # Se usa Rust 1.82.0 para garantizar Cargo.lock v3 (compatible con la
+  # herramienta). El APK se firma con una keystore de debug para sideload.
+  # ════════════════════════════════════════════════════════════════════════════
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Toolchain 1.82.0 (lockfile v3) + targets Android ──────────────────
+      - name: Install Rust 1.82.0 (Android targets)
+        uses: dtolnay/rust-toolchain@1.82.0
+        with:
+          targets: |
+            aarch64-linux-android
+            armv7-linux-androideabi
+            x86_64-linux-android
+
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: android-rust182
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # El runner ubuntu-latest ya incluye ANDROID_HOME y sdkmanager.
+      - name: Verify Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --version
+
+      # ── Instalación de NDK, plataformas y build-tools ──────────────────────
+      # Se instalan API 34 (target) y API 29 (compile SDK por defecto de
+      # cargo-quad-apk). build-tools 34 y 29 para cubrir d8/dx.
+      - name: Install NDK, platforms and build-tools
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "platforms;android-34" \
+            "platforms;android-29" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "build-tools;29.0.0"
+
+      - name: Configure Android environment
+        run: |
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
+
+      # ── Enlaces simbólicos para `ar` (NDK r23+ eliminó binutils) ───────────
+      - name: Create ar symlinks for LLVM
+        run: |
+          set -euo pipefail
+          NDK_BIN="${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for tgt in aarch64-linux-android arm-linux-androideabi x86_64-linux-android; do
+            ln -sf "$NDK_BIN/llvm-ar" "$NDK_BIN/${tgt}-ar"
+          done
+
+      # ── Regenerar Cargo.lock como v3 (Rust 1.82) ───────────────────────────
+      - name: Regenerate Cargo.lock as v3
+        run: |
+          set -euo pipefail
+          rm -f Cargo.lock
+          cargo generate-lockfile
+          head -n 1 Cargo.lock
+
+      - name: Install cargo-quad-apk
+        run: cargo install cargo-quad-apk --locked
+
+      # ── Compilar las ABIs y empaquetar el APK universal ───────────────────
+      - name: Build APK (release, universal)
+        run: cargo quad-apk build --release
+
+      # ── Firmar el APK (debug key generada en el runner) ────────────────────
+      - name: Sign APK
+        run: |
+          set -euo pipefail
+          BT="${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}"
+          APK_DIR="target/android-artifacts/release/apk"
+          RAW_APK="${APK_DIR}/unsigned.apk"
+          if [ ! -f "$RAW_APK" ]; then
+            RAW_APK="$(ls "${APK_DIR}"/*.apk | head -n 1)"
+          fi
+          KEYSTORE="${RUNNER_TEMP}/flappy-debug.keystore"
+          keytool -genkeypair -v \
+            -keystore "${KEYSTORE}" \
+            -storepass android -alias flappybird -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Flappy Bird Debug, OU=CI, O=TetoLover-linux, C=AR"
+          "${BT}/zipalign" -f 4 "${RAW_APK}" "${RUNNER_TEMP}/aligned.apk"
+          "${BT}/apksigner" sign \
+            --ks "${KEYSTORE}" --ks-pass pass:android --key-pass pass:android \
+            --out "flappy_bird-android.apk" "${RUNNER_TEMP}/aligned.apk"
+          "${BT}/apksigner" verify --print-certs "flappy_bird-android.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flappy_bird-android-apk
+          path: flappy_bird-android.apk
           if-no-files-found: error
