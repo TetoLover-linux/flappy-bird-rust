@@ -10,7 +10,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # NDK fijado para builds reproducibles (r25b, recomendado por macroquad)
   ANDROID_NDK_VERSION: "25.2.9519653"
   ANDROID_BUILD_TOOLS: "34.0.0"
 
@@ -60,8 +59,9 @@ jobs:
           if-no-files-found: error
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Android: se usa Rust 1.82.0 para garantizar que Cargo genere y entienda
-  # lockfiles v3, que es lo único que soporta cargo-quad-apk 0.1.4.
+  # Android: se usa Rust 1.82.0 para garantizar lockfiles v3 (compatibles con
+  # cargo-quad-apk 0.1.4) y se crean enlaces simbólicos para que la herramienta
+  # encuentre `ar` en el NDK r23+ (que solo incluye `llvm-ar`).
   # ════════════════════════════════════════════════════════════════════════════
   build-android:
     name: Build Android APK
@@ -91,13 +91,12 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # El runner ubuntu-latest ya trae ANDROID_HOME y sdkmanager preinstalados.
       - name: Verify Android SDK (preinstalled)
         run: |
           echo "ANDROID_HOME=${ANDROID_HOME}"
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --version
 
-      # ── NDK, plataformas y build-tools ────────────────────────────────────
+      # ── Instalación de NDK, plataformas y build-tools ──────────────────────
       - name: Install NDK, platforms and build-tools
         run: |
           set -euo pipefail
@@ -115,9 +114,21 @@ jobs:
           echo "NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
           echo "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
 
+      # ── Enlaces simbólicos para `ar` (NDK r23+ eliminó binutils) ───────────
+      # cargo-quad-apk 0.1.4 busca `aarch64-linux-android-ar`, etc., pero el
+      # NDK 25 solo incluye `llvm-ar`. Se crean symlinks para cada target.
+      - name: Create ar symlinks for LLVM (NDK r23+)
+        run: |
+          set -euo pipefail
+          NDK_BIN="${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "── Binarios en ${NDK_BIN}:"
+          ls -la "$NDK_BIN" | head -n 20
+          for tgt in aarch64-linux-android arm-linux-androideabi x86_64-linux-android; do
+            ln -sf "$NDK_BIN/llvm-ar" "$NDK_BIN/${tgt}-ar"
+            echo "✅ Enlace creado: ${tgt}-ar -> llvm-ar"
+          done
+
       # ── Regenerar el lockfile con Cargo 1.82.0 (formato v3) ───────────────
-      # Se elimina el lockfile v4 existente y se crea uno nuevo compatible
-      # con la librería cargo que usa cargo-quad-apk 0.1.4.
       - name: Regenerate Cargo.lock as v3 (Rust 1.82)
         run: |
           set -euo pipefail
@@ -126,7 +137,7 @@ jobs:
           echo "── Versión del lockfile generado:"
           head -n 1 Cargo.lock
 
-      # ── Instalar cargo-quad-apk usando la toolchain 1.82.0 ────────────────
+      # ── Instalar cargo-quad-apk con la toolchain 1.82.0 ────────────────────
       - name: Install cargo-quad-apk (with Rust 1.82.0)
         run: cargo install cargo-quad-apk --locked
 
