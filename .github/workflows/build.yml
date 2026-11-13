@@ -119,23 +119,6 @@ jobs:
           echo "NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
           echo "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
 
-      # ── Enlaces simbólicos para `ar` (NDK r23+ eliminó binutils) ───────────
-      - name: Create ar symlinks for LLVM
-        run: |
-          set -euo pipefail
-          NDK_BIN="${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          for tgt in aarch64-linux-android arm-linux-androideabi x86_64-linux-android; do
-            ln -sf "$NDK_BIN/llvm-ar" "$NDK_BIN/${tgt}-ar"
-          done
-
-      # ── Regenerar Cargo.lock como v3 (Rust 1.82) ───────────────────────────
-      - name: Regenerate Cargo.lock as v3
-        run: |
-          set -euo pipefail
-          rm -f Cargo.lock
-          cargo generate-lockfile
-          head -n 1 Cargo.lock
-
       # ── Instalar xbuild (reemplaza a cargo-quad-apk) ──────────────────────
       - name: Install xbuild
         run: cargo install xbuild --locked
