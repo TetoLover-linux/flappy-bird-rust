@@ -34,8 +34,6 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      # Dependencias de sistema para sola-raylib en Linux.
-      # Incluye GL, audio, X11 y herramientas de compilación (cmake, clang).
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -64,9 +62,10 @@ jobs:
           if-no-files-found: error
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Android: compila cdylib y empaqueta un APK universal con cargo-quad-apk.
-  # Se usa Rust 1.82.0 para garantizar Cargo.lock v3 (compatible con la
-  # herramienta). El APK se firma con una keystore de debug para sideload.
+  # Android: compila cdylib y empaqueta un APK universal con `xbuild`.
+  # xbuild reemplaza a cargo-quad-apk y no exige la presencia de `miniquad`.
+  # Se mantiene Rust 1.82.0 para garantizar Cargo.lock v3, y el APK se firma
+  # con una keystore de debug para sideload.
   # ════════════════════════════════════════════════════════════════════════════
   build-android:
     name: Build Android APK
@@ -103,8 +102,6 @@ jobs:
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --version
 
       # ── Instalación de NDK, plataformas y build-tools ──────────────────────
-      # Se instalan API 34 (target) y API 29 (compile SDK por defecto de
-      # cargo-quad-apk). build-tools 34 y 29 para cubrir d8/dx.
       - name: Install NDK, platforms and build-tools
         run: |
           set -euo pipefail
@@ -139,23 +136,35 @@ jobs:
           cargo generate-lockfile
           head -n 1 Cargo.lock
 
-      - name: Install cargo-quad-apk
-        run: cargo install cargo-quad-apk --locked
+      # ── Instalar xbuild (reemplaza a cargo-quad-apk) ──────────────────────
+      - name: Install xbuild
+        run: cargo install xbuild --locked
 
-      # ── Compilar las ABIs y empaquetar el APK universal ───────────────────
-      - name: Build APK (release, universal)
-        run: cargo quad-apk build --release
+      # ── Compilar las ABIs y empaquetar el APK con xbuild ──────────────────
+      # `x build` produce un APK de debug por defecto. La ruta de salida
+      # típica de xbuild es target/x/.../apk/...; se localiza después.
+      - name: Build APK (debug, universal) with xbuild
+        run: x build
+
+      # ── Localizar el APK generado por xbuild ──────────────────────────────
+      - name: Locate generated APK
+        id: locate_apk
+        run: |
+          set -euo pipefail
+          APK="$(find target -name '*.apk' -type f | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "❌ No se encontró ningún APK generado por xbuild."
+            exit 1
+          fi
+          echo "── APK encontrado: $APK"
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
 
       # ── Firmar el APK (debug key generada en el runner) ────────────────────
       - name: Sign APK
         run: |
           set -euo pipefail
           BT="${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}"
-          APK_DIR="target/android-artifacts/release/apk"
-          RAW_APK="${APK_DIR}/unsigned.apk"
-          if [ ! -f "$RAW_APK" ]; then
-            RAW_APK="$(ls "${APK_DIR}"/*.apk | head -n 1)"
-          fi
+          RAW_APK="${{ steps.locate_apk.outputs.apk_path }}"
           KEYSTORE="${RUNNER_TEMP}/flappy-debug.keystore"
           keytool -genkeypair -v \
             -keystore "${KEYSTORE}" \
