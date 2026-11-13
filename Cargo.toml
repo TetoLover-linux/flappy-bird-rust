@@ -38,19 +38,20 @@ rpath = false
 # Metadatos para cargo quad-apk (empaquetado a APK)
 # ─────────────────────────────────────────────────────────────────────────────
 [package.metadata.android]
-package = "com.tetolover.flappybird"
-apk_name = "flappy-bird"
-# ARM64 (dispositivos modernos) + ARMv7 (teléfonos viejos) + x86_64 (emulador).
-# Tip: si querés un APK más liviano, dejá solo "aarch64-linux-android".
+# ✅ Clave correcta para el nombre del paquete Java
+package_name = "com.tetolover.flappybird"
+# ✅ 'label' es la clave para el nombre visible de la app
+label = "Flappy Bird"
+# ✅ Targets de compilación (esto ya estaba bien)
 build_targets = ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"]
 
-[package.metadata.android.sdk]
-min_sdk_version = 24     # Android 7.0+
-target_sdk_version = 34  # Requisito de Play Store (API 34)
+# ✅ Las versiones del SDK van directamente aquí, NO en una subsección
+min_sdk_version = 24   # Android 7.0+
+target_sdk_version = 34 # Requisito de Play Store (API 34)
 
+# ✅ Atributos del Activity (esto ya estaba bien)
 [package.metadata.android.activity_attributes]
-"android:exported" = "true"  # Obligatorio para targetSdk >= 31
+"android:exported" = "true"
 "android:label" = "Flappy Bird"
-# Juego vertical: evita rotaciones que reiniciarían el loop
 "android:screenOrientation" = "portrait"
 "android:configChanges" = "orientation|keyboardHidden|keyboard|navigation|screenSize|uiMode"
