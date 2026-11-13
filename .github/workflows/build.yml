@@ -60,9 +60,8 @@ jobs:
           if-no-files-found: error
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Android: compila cdylib para cada ABI con el NDK y empaqueta un APK
-  # universal con cargo-quad-apk. El APK se firma con un keystore de debug
-  # generado en el runner → listo para sideload (no para Play Store).
+  # Android: se usa Rust 1.82.0 para garantizar que Cargo genere y entienda
+  # lockfiles v3, que es lo único que soporta cargo-quad-apk 0.1.4.
   # ════════════════════════════════════════════════════════════════════════════
   build-android:
     name: Build Android APK
@@ -71,8 +70,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain (Android targets)
-        uses: dtolnay/rust-toolchain@stable
+      # ── Toolchain 1.82.0 (lockfile v3 por defecto) + targets Android ──────
+      - name: Install Rust 1.82.0 (Android targets)
+        uses: dtolnay/rust-toolchain@1.82.0
         with:
           targets: |
             aarch64-linux-android
@@ -83,7 +83,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-          key: android
+          key: android-rust182
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -97,9 +97,7 @@ jobs:
           echo "ANDROID_HOME=${ANDROID_HOME}"
           "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --version
 
-      # ── Instalación de NDK, plataformas y build-tools ──────────────────────
-      # Se instalan API 34 (target) y API 29 (compile SDK por defecto de
-      # cargo-quad-apk). build-tools 34 y 29 para cubrir tanto d8 como dx.
+      # ── NDK, plataformas y build-tools ────────────────────────────────────
       - name: Install NDK, platforms and build-tools
         run: |
           set -euo pipefail
@@ -117,29 +115,26 @@ jobs:
           echo "NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
           echo "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
 
-      # ── Herramienta oficial de macroquad para empaquetar APK ─────────────
-      - name: Install cargo-quad-apk
+      # ── Regenerar el lockfile con Cargo 1.82.0 (formato v3) ───────────────
+      # Se elimina el lockfile v4 existente y se crea uno nuevo compatible
+      # con la librería cargo que usa cargo-quad-apk 0.1.4.
+      - name: Regenerate Cargo.lock as v3 (Rust 1.82)
+        run: |
+          set -euo pipefail
+          rm -f Cargo.lock
+          cargo generate-lockfile
+          echo "── Versión del lockfile generado:"
+          head -n 1 Cargo.lock
+
+      # ── Instalar cargo-quad-apk usando la toolchain 1.82.0 ────────────────
+      - name: Install cargo-quad-apk (with Rust 1.82.0)
         run: cargo install cargo-quad-apk --locked
 
-      # ── Forzar Cargo.lock v3 para compatibilidad con cargo-quad-apk ───────
-      # cargo-quad-apk 0.1.4 usa una versión de la librería cargo que no
-      # entiende el lockfile v4 (generado por Rust 1.83+). Cambiamos solo la
-      # primera línea (version = 4 → version = 3) sin tocar dependencias.
-      - name: Downgrade Cargo.lock to version 3 (cargo-quad-apk compatibility)
-        run: |
-          if [ -f Cargo.lock ]; then
-            sed -i '1s/version = 4/version = 3/' Cargo.lock
-            echo "── Primera línea del Cargo.lock ajustada:"
-            head -n 1 Cargo.lock
-          else
-            echo "⚠️  Cargo.lock no encontrado, se generará automáticamente."
-          fi
-
-      # ── Compila las 3 ABIs y arma el APK universal ───────────────────────
+      # ── Compilar las 3 ABIs y empaquetar el APK universal ─────────────────
       - name: Build APK (release, universal)
         run: cargo quad-apk build --release
 
-      # ── Firma el APK (debug key generada en el runner) para sideload ─────
+      # ── Firmar el APK (debug key generada en el runner) para sideload ─────
       - name: Sign APK
         run: |
           set -euo pipefail
