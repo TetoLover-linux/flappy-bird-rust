@@ -10,23 +10,16 @@ edition = "2021"
 # para dispositivos móviles. En escritorio, sola-raylib seleccionará
 # automáticamente el backend adecuado si no se fuerza ninguno, pero al incluir
 # "opengl_es_20" se prioriza la compatibilidad móvil.
-sola-raylib = { version = "6", default-features = false, features = ["opengl_es_20"] }
+sola-raylib = { version = "6", default-features = false, features = ["opengl_21"] }
 # La crate `rand` ya no es necesaria: SimpleRng en main.rs la sustituye.
 # rand = "0.8"
-
-[package.metadata.android]
-package_name = "com.tetolover.flappybird"
-label = "Flappy Bird"
-build_targets = ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-linux-android"]
-# android_version = 29  # compile SDK (por defecto 29)
-# min_sdk_version = 24  # mínimo recomendado para Rust
 
 [profile.release]
 lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
-opt-level = "z"      # Puedes cambiarlo a 3 si priorizas fluidez sobre tamaño.
+opt-level = 3      # Puedes cambiarlo a 3 si priorizas fluidez sobre tamaño.
 overflow-checks = false
 debug = false
 incremental = false
