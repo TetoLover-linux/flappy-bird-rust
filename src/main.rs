@@ -1,15 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Flappy Bird — port de raylib-rs a macroquad (escritorio + Android)
-//
-// macroquad es "inspirado en raylib": la API es casi 1:1, pero con backend
-// móvil nativo (miniquad → EGL/OpenGL ES sobre NativeActivity), que es lo que
-// raylib-rs NO ofrece (soporta Windows/Linux/macOS/wasm, Android ❌).
-//
-// Entrada: mouse en escritorio y touch en Android (touches()), sin assets
-// externos, sin crates de rand (LCG propio) y con buffers de texto
-// reutilizables → cero asignaciones por frame.
-// ─────────────────────────────────────────────────────────────────────────────
-use macroquad::prelude::*;
+use raylib::prelude::*;
 use std::fmt::Write;
 use std::fs;
 
@@ -27,21 +16,25 @@ const BIRD_SIZE: f32 = 24.0;
 const BIRD_HALF: f32 = BIRD_SIZE / 2.0;
 const HIGHSCORE_FILE: &str = "highscore.txt";
 const SETTINGS_FILE: &str = "settings.txt";
+
 const MAX_ROTATION_DEG: f32 = 50.0;
 const ROTATION_SPEED: f32 = 200.0;
-// Hitboxes del panel de ajustes (macroquad usa Rect { x, y, w, h })
-const PANEL_RECT: Rect = Rect { x: 25.0, y: 170.0, w: 310.0, h: 290.0 };
-const CLOSE_BTN_RECT: Rect = Rect { x: 33.0, y: 178.0, w: 30.0, h: 30.0 };
-const ROW1_RECT: Rect = Rect { x: 40.0, y: 225.0, w: 280.0, h: 60.0 };
-const ROW2_RECT: Rect = Rect { x: 40.0, y: 305.0, w: 280.0, h: 60.0 };
-const TOGGLE1_RECT: Rect = Rect { x: 240.0, y: 237.0, w: 70.0, h: 36.0 };
-const TOGGLE2_RECT: Rect = Rect { x: 240.0, y: 317.0, w: 70.0, h: 36.0 };
-const SETTINGS_BTN_RECT: Rect = Rect { x: 10.0, y: 490.0, w: 55.0, h: 55.0 };
+
+// Hitboxes del panel de ajustes
+const PANEL_RECT: Rectangle = Rectangle { x: 25.0, y: 170.0, width: 310.0, height: 290.0 };
+const CLOSE_BTN_RECT: Rectangle = Rectangle { x: 33.0, y: 178.0, width: 30.0, height: 30.0 };
+const ROW1_RECT: Rectangle = Rectangle { x: 40.0, y: 225.0, width: 280.0, height: 60.0 };
+const ROW2_RECT: Rectangle = Rectangle { x: 40.0, y: 305.0, width: 280.0, height: 60.0 };
+const TOGGLE1_RECT: Rectangle = Rectangle { x: 240.0, y: 237.0, width: 70.0, height: 36.0 };
+const TOGGLE2_RECT: Rectangle = Rectangle { x: 240.0, y: 317.0, width: 70.0, height: 36.0 };
+const SETTINGS_BTN_RECT: Rectangle = Rectangle { x: 10.0, y: 490.0, width: 55.0, height: 55.0 };
+
 // Textura del suelo: SCREEN_WIDTH + 20 para permitir scroll sin costuras
 const GROUND_TEX_WIDTH: u32 = (SCREEN_WIDTH + 20) as u32;
 
 // ── SimpleRng: reemplaza la crate `rand` con un LCG de 2 líneas ─────────────
 struct SimpleRng(u64);
+
 impl SimpleRng {
     fn new(seed: u64) -> Self {
         Self(if seed == 0 { 1 } else { seed })
@@ -75,14 +68,15 @@ enum GameState {
 
 // ── Pájaro ──────────────────────────────────────────────────────────────────
 struct Bird {
-    position: Vec2,
+    position: Vector2,
     velocity: f32,
     rotation: f32,
 }
+
 impl Bird {
     fn new() -> Self {
         Self {
-            position: vec2(SCREEN_WIDTH as f32 / 4.0, SCREEN_HEIGHT as f32 / 2.0),
+            position: Vector2::new(SCREEN_WIDTH as f32 / 4.0, SCREEN_HEIGHT as f32 / 2.0),
             velocity: 0.0,
             rotation: 0.0,
         }
@@ -99,32 +93,22 @@ impl Bird {
         }
     }
     fn reset(&mut self) {
-        self.position = vec2(SCREEN_WIDTH as f32 / 4.0, SCREEN_HEIGHT as f32 / 2.0);
+        self.position = Vector2::new(SCREEN_WIDTH as f32 / 4.0, SCREEN_HEIGHT as f32 / 2.0);
         self.velocity = 0.0;
         self.rotation = 0.0;
     }
-    fn get_collision_rect(&self) -> Rect {
-        Rect::new(
+    fn get_collision_rect(&self) -> Rectangle {
+        Rectangle::new(
             self.position.x - BIRD_HALF,
             self.position.y - BIRD_HALF,
             BIRD_SIZE,
             BIRD_SIZE,
         )
     }
-    fn draw(&self) {
-        // Equivalente a draw_rectangle_pro de raylib: rotación en radianes
-        // alrededor del offset (centro del sprite).
-        draw_rectangle_ex(
-            self.position.x,
-            self.position.y,
-            BIRD_SIZE,
-            BIRD_SIZE,
-            DrawRectangleParams {
-                offset: vec2(BIRD_HALF, BIRD_HALF),
-                rotation: self.rotation.to_radians(),
-                color: YELLOW,
-            },
-        );
+    fn draw(&self, d: &mut RaylibDrawHandle) {
+        let rec = Rectangle::new(self.position.x, self.position.y, BIRD_SIZE, BIRD_SIZE);
+        let origin = Vector2::new(BIRD_HALF, BIRD_HALF);
+        d.draw_rectangle_pro(rec, origin, self.rotation, Color::YELLOW);
     }
 }
 
@@ -134,6 +118,7 @@ struct Pipe {
     gap_y: f32,
     scored: bool,
 }
+
 impl Pipe {
     fn new(x: f32, gap_y: f32) -> Self {
         Self { x, gap_y, scored: false }
@@ -142,12 +127,12 @@ impl Pipe {
         self.x -= PIPE_SPEED * dt;
         self.x + PIPE_WIDTH as f32 > 0.0
     }
-    fn get_top_rect(&self) -> Rect {
-        Rect::new(self.x, 0.0, PIPE_WIDTH as f32, self.gap_y - PIPE_GAP as f32 / 2.0)
+    fn get_top_rect(&self) -> Rectangle {
+        Rectangle::new(self.x, 0.0, PIPE_WIDTH as f32, self.gap_y - PIPE_GAP as f32 / 2.0)
     }
-    fn get_bottom_rect(&self) -> Rect {
+    fn get_bottom_rect(&self) -> Rectangle {
         let bottom_y = self.gap_y + PIPE_GAP as f32 / 2.0;
-        Rect::new(
+        Rectangle::new(
             self.x,
             bottom_y,
             PIPE_WIDTH as f32,
@@ -155,35 +140,10 @@ impl Pipe {
         )
     }
     fn collides_with(&self, bird: &Bird) -> bool {
-        // AABB clásico (equivalente a check_collision_recs de raylib)
-        rects_collide(bird.get_collision_rect(), self.get_top_rect())
-            || rects_collide(bird.get_collision_rect(), self.get_bottom_rect())
+        let bird_rect = bird.get_collision_rect();
+        bird_rect.check_collision_recs(self.get_top_rect())
+            || bird_rect.check_collision_recs(self.get_bottom_rect())
     }
-}
-
-#[inline]
-fn rects_collide(a: Rect, b: Rect) -> bool {
-    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
-}
-
-// Helpers: macroquad 0.4 no tiene draw_rectangle_rec(Rect, ..); envuelve las
-// variantes por-coordenada para mantener el estilo de raylib.
-#[inline]
-fn draw_rect_rec(r: Rect, color: Color) {
-    draw_rectangle(r.x, r.y, r.w, r.h, color);
-}
-
-#[inline]
-fn draw_rect_lines(r: Rect, thickness: f32, color: Color) {
-    draw_rectangle_lines(r.x, r.y, r.w, r.h, thickness, color);
-}
-
-#[inline]
-fn point_in_rect(point: Vec2, rect: Rect) -> bool {
-    point.x >= rect.x
-        && point.x <= rect.x + rect.w
-        && point.y >= rect.y
-        && point.y <= rect.y + rect.h
 }
 
 // ── Juego ───────────────────────────────────────────────────────────────────
@@ -201,45 +161,38 @@ struct Game {
     settings_selection: usize,
     // ── Optimizaciones ──────────────────────────────────────────────────────
     rng: SimpleRng,
-    ground_texture: Texture2D,
+    ground_texture: RenderTexture2D,
     score_buf: String,
     best_buf: String,
     fps_buf: String,
     rot_buf: String,
 }
 
-/// Genera la textura del suelo UNA sola vez en CPU (un Image de 380x80 px) y
-/// la sube a GPU: en el loop queda 1 quad con scroll por `source` rect,
-/// en vez de ~20 draw_rectangle por frame.
-fn build_ground_texture() -> Texture2D {
-    let mut img = Image::gen_image_color(GROUND_TEX_WIDTH as u16, GROUND_HEIGHT as u16, BROWN);
-    let w = GROUND_TEX_WIDTH as i32;
-    let mut x = 0;
-    while x < w {
-        for dx in 0..10 {
-            let px = (x + dx) as u32;
-            if px < GROUND_TEX_WIDTH {
-                for py in 0..5u32 {
-                    img.set_pixel(px, py, DARKBROWN);
-                }
-            }
-        }
-        x += 20;
-    }
-    Texture2D::from_image(&img)
-}
-
 impl Game {
-    fn new() -> Self {
+    fn new(rl: &mut RaylibHandle, thread: &RaylibThread) -> Self {
         let high_score = Self::load_high_score();
         let (show_fps, show_rotation) = Self::load_settings();
-        // ── Textura del suelo pre-renderizada (una sola vez) ────────────────
-        let ground_texture = build_ground_texture();
-        // ── Semilla para el RNG basada en tiempo ────────────────────────────
+
+        // ── Pre-renderizar el patrón del suelo en una textura (una sola vez) ──
+        let mut ground_tex = rl
+            .load_render_texture(thread, GROUND_TEX_WIDTH, GROUND_HEIGHT as u32)
+            .expect("Failed to create ground render texture");
+        {
+            let mut d = rl.begin_texture_mode(thread, &mut ground_tex);
+            d.clear_background(Color::BROWN);
+            let mut x = 0;
+            while x < GROUND_TEX_WIDTH as i32 {
+                d.draw_rectangle(x, 0, 10, 5, Color::DARKBROWN);
+                x += 20;
+            }
+        } // ← drop del RaylibTextureMode → end_texture_mode
+
+        // ── Semilla para el RNG basada en tiempo ─────────────────────────────
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0xDEAD_BEEF);
+
         Self {
             state: GameState::Ready,
             prev_state: GameState::Ready,
@@ -253,13 +206,14 @@ impl Game {
             show_rotation,
             settings_selection: 0,
             rng: SimpleRng::new(seed),
-            ground_texture,
+            ground_texture: ground_tex,
             score_buf: String::with_capacity(24),
             best_buf: String::with_capacity(24),
             fps_buf: String::with_capacity(16),
             rot_buf: String::with_capacity(16),
         }
     }
+
     fn load_high_score() -> u32 {
         fs::read_to_string(HIGHSCORE_FILE)
             .ok()
@@ -267,8 +221,6 @@ impl Game {
             .unwrap_or(0)
     }
     fn save_high_score(&self) {
-        // En Android miniquad deja el cwd en el directorio privado de la app,
-        // así que el archivo persiste en /data/data/<pkg>/files/.
         let _ = fs::write(HIGHSCORE_FILE, self.high_score.to_string());
     }
     fn load_settings() -> (bool, bool) {
@@ -311,12 +263,14 @@ impl Game {
         self.score = 0;
         self.spawn_timer = 0.0;
     }
+
     fn update(&mut self, dt: f32) {
         match self.state {
             GameState::Ready => {}
             GameState::Playing => {
                 self.bird.update(dt);
                 self.ground_scroll = (self.ground_scroll + PIPE_SPEED * dt) % 20.0;
+
                 self.spawn_timer += dt;
                 if self.spawn_timer >= PIPE_SPAWN_INTERVAL {
                     self.spawn_timer = 0.0;
@@ -325,6 +279,7 @@ impl Game {
                     let gap_y = self.rng.range_f32(min_gap, max_gap);
                     self.pipes.push(Pipe::new(SCREEN_WIDTH as f32, gap_y));
                 }
+
                 let mut score_increment = 0;
                 self.pipes.retain_mut(|pipe| {
                     if !pipe.scored && pipe.x + (PIPE_WIDTH as f32) < self.bird.position.x {
@@ -334,9 +289,11 @@ impl Game {
                     pipe.update(dt)
                 });
                 self.score += score_increment;
+
                 if self.score > self.high_score {
                     self.high_score = self.score;
                 }
+
                 if self.bird.position.y + BIRD_HALF > (SCREEN_HEIGHT - GROUND_HEIGHT) as f32
                     || self.bird.position.y - BIRD_HALF < 0.0
                 {
@@ -355,300 +312,291 @@ impl Game {
             GameState::GameOver | GameState::Settings => {}
         }
     }
-    // ── Marcador (buffers reutilizables, cero asignaciones por frame) ───────
-    fn draw_game(&mut self) {
-        clear_background(SKYBLUE);
+
+    // ⚠ Ahora recibe `&mut self` para poder reutilizar los buffers de texto
+    fn draw_game(&mut self, d: &mut RaylibDrawHandle) {
+        d.clear_background(Color::SKYBLUE);
+
         for pipe in &self.pipes {
-            draw_rect_rec(pipe.get_top_rect(), GREEN);
-            draw_rect_rec(pipe.get_bottom_rect(), GREEN);
+            d.draw_rectangle_rec(pipe.get_top_rect(), Color::GREEN);
+            d.draw_rectangle_rec(pipe.get_bottom_rect(), Color::GREEN);
         }
-        // ── Suelo cacheado: 1 quad en vez de ~20 rectángulos ────────────────
-        // Equivalente a draw_texture_rec: se dibuja solo el sub-rectángulo
-        // [ground_scroll .. ground_scroll + 360] de la textura de 380 px.
-        draw_texture_ex(
-            &self.ground_texture,
-            0.0,
-            (SCREEN_HEIGHT - GROUND_HEIGHT) as f32,
-            WHITE,
-            DrawTextureParams {
-                source: Some(Rect::new(
-                    self.ground_scroll,
-                    0.0,
-                    SCREEN_WIDTH as f32,
-                    GROUND_HEIGHT as f32,
-                )),
-                ..Default::default()
-            },
+
+        // ── Suelo cacheado: 1 quad en vez de ~20 rectángulos ─────────────────
+        d.draw_texture_rec(
+            &self.ground_texture,         // ← RenderTexture2D implementa AsRef<Texture2D>
+            Rectangle::new(
+                self.ground_scroll,
+                0.0,
+                SCREEN_WIDTH as f32,
+                GROUND_HEIGHT as f32,
+            ),
+            Vector2::new(0.0, (SCREEN_HEIGHT - GROUND_HEIGHT) as f32),
+            Color::WHITE,
         );
-        self.bird.draw();
+
+        self.bird.draw(d);
+
+        // ── Marcador (buffers reutilizables, cero asignaciones por frame) ────
         self.score_buf.clear();
         let _ = write!(&mut self.score_buf, "Score: {}", self.score);
-        draw_text(&self.score_buf, 10.0, 30.0, 20.0, WHITE);
+        d.draw_text(&self.score_buf, 10, 10, 20, Color::WHITE);
+
         self.best_buf.clear();
         let _ = write!(&mut self.best_buf, "Best: {}", self.high_score);
-        draw_text(&self.best_buf, 10.0, 56.0, 16.0, GOLD);
+        d.draw_text(&self.best_buf, 10, 36, 16, Color::GOLD);
+
         match self.state {
             GameState::Ready => {
-                draw_text(
+                d.draw_text(
                     "TAP or SPACE to start",
-                    (SCREEN_WIDTH / 2 - 110) as f32,
-                    (SCREEN_HEIGHT / 2 - 12) as f32,
-                    18.0,
-                    WHITE,
+                    SCREEN_WIDTH / 2 - 110,
+                    SCREEN_HEIGHT / 2 - 30,
+                    18,
+                    Color::WHITE,
                 );
-                draw_text(
+                d.draw_text(
                     "S or gear: settings",
-                    (SCREEN_WIDTH / 2 - 85) as f32,
-                    (SCREEN_HEIGHT / 2 + 26) as f32,
-                    14.0,
-                    GRAY,
+                    SCREEN_WIDTH / 2 - 85,
+                    SCREEN_HEIGHT / 2 + 10,
+                    14,
+                    Color::GRAY,
                 );
-                draw_text(
+                d.draw_text(
                     "ESC: exit game",
-                    (SCREEN_WIDTH / 2 - 55) as f32,
-                    (SCREEN_HEIGHT / 2 + 44) as f32,
-                    14.0,
-                    GRAY,
+                    SCREEN_WIDTH / 2 - 55,
+                    SCREEN_HEIGHT / 2 + 28,
+                    14,
+                    Color::GRAY,
                 );
             }
             GameState::GameOver => {
-                draw_text(
+                d.draw_text(
                     "GAME OVER",
-                    (SCREEN_WIDTH / 2 - 75) as f32,
-                    (SCREEN_HEIGHT / 2 - 55) as f32,
-                    28.0,
-                    RED,
+                    SCREEN_WIDTH / 2 - 75,
+                    SCREEN_HEIGHT / 2 - 80,
+                    28,
+                    Color::RED,
                 );
                 // Reutiliza los buffers ya poblados arriba
-                draw_text(
+                d.draw_text(
                     &self.score_buf,
-                    (SCREEN_WIDTH / 2 - 45) as f32,
-                    (SCREEN_HEIGHT / 2) as f32,
-                    22.0,
-                    WHITE,
+                    SCREEN_WIDTH / 2 - 45,
+                    SCREEN_HEIGHT / 2 - 25,
+                    22,
+                    Color::WHITE,
                 );
-                draw_text(
+                d.draw_text(
                     &self.best_buf,
-                    (SCREEN_WIDTH / 2 - 40) as f32,
-                    (SCREEN_HEIGHT / 2 + 35) as f32,
-                    22.0,
-                    GOLD,
+                    SCREEN_WIDTH / 2 - 40,
+                    SCREEN_HEIGHT / 2 + 10,
+                    22,
+                    Color::GOLD,
                 );
-                draw_text(
+                d.draw_text(
                     "TAP or SPACE to restart",
-                    (SCREEN_WIDTH / 2 - 110) as f32,
-                    (SCREEN_HEIGHT / 2 + 80) as f32,
-                    18.0,
-                    WHITE,
+                    SCREEN_WIDTH / 2 - 110,
+                    SCREEN_HEIGHT / 2 + 55,
+                    18,
+                    Color::WHITE,
                 );
-                draw_text(
+                d.draw_text(
                     "ESC: exit game",
-                    (SCREEN_WIDTH / 2 - 55) as f32,
-                    (SCREEN_HEIGHT / 2 + 105) as f32,
-                    14.0,
-                    GRAY,
+                    SCREEN_WIDTH / 2 - 55,
+                    SCREEN_HEIGHT / 2 + 80,
+                    14,
+                    Color::GRAY,
                 );
             }
             _ => {}
         }
     }
-    fn draw_settings_button(&self) {
-        draw_rect_rec(SETTINGS_BTN_RECT, Color::from_rgba(50, 50, 60, 230));
-        draw_rect_lines(SETTINGS_BTN_RECT, 2.0, LIGHTGRAY);
-        let cx = (SETTINGS_BTN_RECT.x + SETTINGS_BTN_RECT.w / 2.0) as f32;
-        let cy = (SETTINGS_BTN_RECT.y + SETTINGS_BTN_RECT.h / 2.0) as f32;
-        draw_circle(cx, cy, 16.0, LIGHTGRAY);
-        draw_circle(cx, cy, 8.0, Color::from_rgba(50, 50, 60, 255));
-        draw_circle(cx, cy, 4.0, LIGHTGRAY);
+
+    fn draw_settings_button(&self, d: &mut RaylibDrawHandle) {
+        d.draw_rectangle_rec(SETTINGS_BTN_RECT, Color::new(50, 50, 60, 230));
+        d.draw_rectangle_lines_ex(SETTINGS_BTN_RECT, 2.0, Color::LIGHTGRAY);
+        let cx = (SETTINGS_BTN_RECT.x + SETTINGS_BTN_RECT.width / 2.0) as i32;
+        let cy = (SETTINGS_BTN_RECT.y + SETTINGS_BTN_RECT.height / 2.0) as i32;
+        d.draw_circle(cx, cy, 16.0, Color::LIGHTGRAY);
+        d.draw_circle(cx, cy, 8.0, Color::new(50, 50, 60, 255));
+        d.draw_circle(cx, cy, 4.0, Color::LIGHTGRAY);
     }
-    fn draw_settings_panel(&self) {
-        draw_rect_rec(PANEL_RECT, Color::from_rgba(85, 85, 85, 250));
-        draw_rect_lines(PANEL_RECT, 2.0, LIGHTGRAY);
-        draw_text("SETTINGS", 130.0, 207.0, 24.0, WHITE);
+
+    fn draw_settings_panel(&self, d: &mut RaylibDrawHandle) {
+        d.draw_rectangle_rec(PANEL_RECT, Color::new(85, 85, 85, 250));
+        d.draw_rectangle_lines_ex(PANEL_RECT, 2.0, Color::LIGHTGRAY);
+
+        d.draw_text("SETTINGS", 130, 185, 24, Color::WHITE);
+
         // Botón X
-        draw_rect_rec(CLOSE_BTN_RECT, Color::from_rgba(160, 50, 50, 255));
-        draw_rect_lines(CLOSE_BTN_RECT, 2.0, LIGHTGRAY);
+        d.draw_rectangle_rec(CLOSE_BTN_RECT, Color::new(160, 50, 50, 255));
+        d.draw_rectangle_lines_ex(CLOSE_BTN_RECT, 2.0, Color::LIGHTGRAY);
         let cx = CLOSE_BTN_RECT.x as i32;
         let cy = CLOSE_BTN_RECT.y as i32;
-        let cs = CLOSE_BTN_RECT.w as i32;
-        draw_line(
-            (cx + 9) as f32,
-            (cy + 9) as f32,
-            (cx + cs - 9) as f32,
-            (cy + cs - 9) as f32,
-            2.0,
-            WHITE,
-        );
-        draw_line(
-            (cx + cs - 9) as f32,
-            (cy + 9) as f32,
-            (cx + 9) as f32,
-            (cy + cs - 9) as f32,
-            2.0,
-            WHITE,
-        );
+        let cs = CLOSE_BTN_RECT.width as i32;
+        d.draw_line(cx + 9, cy + 9, cx + cs - 9, cy + cs - 9, Color::WHITE);
+        d.draw_line(cx + cs - 9, cy + 9, cx + 9, cy + cs - 9, Color::WHITE);
+
         // Fila 1: FPS
         let sel1 = self.settings_selection == 0;
         let row1_bg = if sel1 {
-            Color::from_rgba(115, 115, 115, 255)
+            Color::new(115, 115, 115, 255)
         } else {
-            Color::from_rgba(95, 95, 95, 255)
+            Color::new(95, 95, 95, 255)
         };
-        draw_rect_rec(ROW1_RECT, row1_bg);
-        draw_text("Show FPS", 52.0, 261.0, 20.0, WHITE);
+        d.draw_rectangle_rec(ROW1_RECT, row1_bg);
+        d.draw_text("Show FPS", 52, 243, 20, Color::WHITE);
         let t1_bg = if self.show_fps {
-            Color::from_rgba(40, 160, 60, 255)
+            Color::new(40, 160, 60, 255)
         } else {
-            Color::from_rgba(140, 40, 40, 255)
+            Color::new(140, 40, 40, 255)
         };
-        draw_rect_rec(TOGGLE1_RECT, t1_bg);
-        draw_rect_lines(TOGGLE1_RECT, 1.5, WHITE);
+        d.draw_rectangle_rec(TOGGLE1_RECT, t1_bg);
+        d.draw_rectangle_lines_ex(TOGGLE1_RECT, 1.5, Color::WHITE);
         let t1_text = if self.show_fps { "ON" } else { "OFF" };
-        let t1_w = measure_text(t1_text, None, 18, 1.0).width;
-        draw_text(
+        let t1_w = d.measure_text(t1_text, 18);
+        d.draw_text(
             t1_text,
-            TOGGLE1_RECT.x + ((TOGGLE1_RECT.w - t1_w) / 2.0),
-            TOGGLE1_RECT.y + 27.0,
-            18.0,
-            WHITE,
+            (TOGGLE1_RECT.x as i32) + ((TOGGLE1_RECT.width as i32 - t1_w) / 2),
+            (TOGGLE1_RECT.y as i32) + 9,
+            18,
+            Color::WHITE,
         );
+
         // Fila 2: Rotación
         let sel2 = self.settings_selection == 1;
         let row2_bg = if sel2 {
-            Color::from_rgba(115, 115, 115, 255)
+            Color::new(115, 115, 115, 255)
         } else {
-            Color::from_rgba(95, 95, 95, 255)
+            Color::new(95, 95, 95, 255)
         };
-        draw_rect_rec(ROW2_RECT, row2_bg);
-        draw_text("Show Rotation", 52.0, 341.0, 20.0, WHITE);
+        d.draw_rectangle_rec(ROW2_RECT, row2_bg);
+        d.draw_text("Show Rotation", 52, 323, 20, Color::WHITE);
         let t2_bg = if self.show_rotation {
-            Color::from_rgba(40, 160, 60, 255)
+            Color::new(40, 160, 60, 255)
         } else {
-            Color::from_rgba(140, 40, 40, 255)
+            Color::new(140, 40, 40, 255)
         };
-        draw_rect_rec(TOGGLE2_RECT, t2_bg);
-        draw_rect_lines(TOGGLE2_RECT, 1.5, WHITE);
+        d.draw_rectangle_rec(TOGGLE2_RECT, t2_bg);
+        d.draw_rectangle_lines_ex(TOGGLE2_RECT, 1.5, Color::WHITE);
         let t2_text = if self.show_rotation { "ON" } else { "OFF" };
-        let t2_w = measure_text(t2_text, None, 18, 1.0).width;
-        draw_text(
+        let t2_w = d.measure_text(t2_text, 18);
+        d.draw_text(
             t2_text,
-            TOGGLE2_RECT.x + ((TOGGLE2_RECT.w - t2_w) / 2.0),
-            TOGGLE2_RECT.y + 27.0,
-            18.0,
-            WHITE,
+            (TOGGLE2_RECT.x as i32) + ((TOGGLE2_RECT.width as i32 - t2_w) / 2),
+            (TOGGLE2_RECT.y as i32) + 9,
+            18,
+            Color::WHITE,
         );
-        draw_text("UP/DOWN to select", 105.0, 406.0, 14.0, LIGHTGRAY);
-        draw_text("SPACE to toggle", 115.0, 424.0, 14.0, LIGHTGRAY);
-        draw_text("ESC or X to close", 105.0, 442.0, 14.0, LIGHTGRAY);
+
+        d.draw_text("UP/DOWN to select", 105, 392, 14, Color::LIGHTGRAY);
+        d.draw_text("SPACE to toggle", 115, 410, 14, Color::LIGHTGRAY);
+        d.draw_text("ESC or X to close", 105, 428, 14, Color::LIGHTGRAY);
     }
-    fn draw(&mut self, fps: u32) {
-        self.draw_game();
+
+    fn draw(&mut self, d: &mut RaylibDrawHandle, fps: u32) {
+        self.draw_game(d);
+
         if self.state != GameState::Settings {
-            self.draw_settings_button();
+            self.draw_settings_button(d);
         }
+
         if self.state == GameState::Settings {
-            draw_rectangle(0.0, 0.0, SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32, Color::from_rgba(0, 0, 0, 160));
-            self.draw_settings_panel();
+            d.draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, Color::new(0, 0, 0, 160));
+            self.draw_settings_panel(d);
         }
+
         // ── Overlays (buffers reutilizables) ────────────────────────────────
         if self.show_fps {
             self.fps_buf.clear();
             let _ = write!(&mut self.fps_buf, "FPS: {}", fps);
-            let w = measure_text(&self.fps_buf, None, 14, 1.0).width;
-            draw_text(&self.fps_buf, SCREEN_WIDTH as f32 - w - 8.0, 22.0, 14.0, LIME);
+            let w = d.measure_text(&self.fps_buf, 14);
+            d.draw_text(&self.fps_buf, SCREEN_WIDTH - w - 8, 8, 14, Color::LIME);
         }
         if self.show_rotation {
             self.rot_buf.clear();
             let _ = write!(&mut self.rot_buf, "Rot: {:+.0}", self.bird.rotation);
-            let w = measure_text(&self.rot_buf, None, 14, 1.0).width;
-            draw_text(&self.rot_buf, SCREEN_WIDTH as f32 - w - 8.0, 40.0, 14.0, LIME);
+            let w = d.measure_text(&self.rot_buf, 14);
+            d.draw_text(&self.rot_buf, SCREEN_WIDTH - w - 8, 26, 14, Color::LIME);
         }
     }
 }
 
-// ── Entrada unificada mouse/touch ───────────────────────────────────────────
-// macroquad reporta los toques por separado del mouse, así que se consultan
-// ambas fuentes: en escritorio dispara el mouse, en Android el touch.
-fn pointer_pressed() -> bool {
-    is_mouse_button_pressed(MouseButton::Left)
-        || touches().iter().any(|t| matches!(t.phase, TouchPhase::Started))
+// ── Helpers ─────────────────────────────────────────────────────────────────
+fn is_flap_input(rl: &RaylibHandle) -> bool {
+    rl.is_key_pressed(KeyboardKey::KEY_SPACE)
+        || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
 }
 
-fn pointer_position() -> Vec2 {
-    let ts = touches();
-    if let Some(t) = ts.last() {
-        t.position
-    } else {
-        let (x, y) = mouse_position();
-        vec2(x, y)
-    }
-}
-
-// ── Conf de ventana (escritorio; en Android es fullscreen ignorando el size) ─
-fn window_conf() -> Conf {
-    Conf {
-        window_title: "Flappy Bird - macroquad (optimized)".to_owned(),
-        window_width: SCREEN_WIDTH,
-        window_height: SCREEN_HEIGHT,
-        window_resizable: false,
-        // vsync por defecto en miniquad = frame pacing a 60 Hz
-        high_dpi: true,
-        ..Default::default()
-    }
+fn point_in_rect(point: Vector2, rect: Rectangle) -> bool {
+    point.x >= rect.x
+        && point.x <= rect.x + rect.width
+        && point.y >= rect.y
+        && point.y <= rect.y + rect.height
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
-// En escritorio genera fn main(); en Android exporta android_main (NativeActivity).
-#[macroquad::main(window_conf)]
-async fn main() {
-    let mut game = Game::new();
-    loop {
-        if is_quit_requested() {
-            break;
-        }
-        let dt = get_frame_time() as f32;
-        // ── ESC contextual (botón "atrás" en Android) ───────────────────────
-        if is_key_pressed(KeyCode::Escape) {
+fn main() {
+    let (mut rl, thread) = raylib::init()
+        .size(SCREEN_WIDTH, SCREEN_HEIGHT)
+        .title("Flappy Bird - raylib-rs (optimized)")
+        .build();
+
+    rl.set_window_size(SCREEN_WIDTH, SCREEN_HEIGHT);
+    rl.set_target_fps(60);
+
+    let mut game = Game::new(&mut rl, &thread);
+
+    while !rl.window_should_close() {
+        let dt = rl.get_frame_time();
+
+        // ── ESC contextual ──────────────────────────────────────────────────
+        if rl.is_key_pressed(KeyboardKey::KEY_ESCAPE) {
             if game.state == GameState::Settings {
                 game.close_settings();
             } else {
                 break;
             }
         }
-        // ── Apertura de ajustes (S o toque en engranaje) ────────────────────
+
+        // ── Apertura de ajustes (S o clic en engranaje) ─────────────────────
         if game.state != GameState::Settings {
-            let s_pressed = is_key_pressed(KeyCode::S);
-            let tap_on_gear = pointer_pressed() && point_in_rect(pointer_position(), SETTINGS_BTN_RECT);
-            if s_pressed || tap_on_gear {
+            let s_pressed = rl.is_key_pressed(KeyboardKey::KEY_S);
+            let click_on_gear = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
+                && point_in_rect(rl.get_mouse_position(), SETTINGS_BTN_RECT);
+            if s_pressed || click_on_gear {
                 game.open_settings();
             }
         }
+
         // ── Lógica por estado ───────────────────────────────────────────────
         match game.state {
             GameState::Ready => {
-                if pointer_pressed() {
+                if is_flap_input(&rl) {
                     game.reset();
                 }
             }
             GameState::Playing => {
-                if pointer_pressed() {
+                if is_flap_input(&rl) {
                     game.bird.flap();
                 }
                 game.update(dt);
             }
             GameState::GameOver => {
-                if pointer_pressed() {
+                if is_flap_input(&rl) {
                     game.reset();
                 }
             }
             GameState::Settings => {
-                if is_key_pressed(KeyCode::Up) {
+                if rl.is_key_pressed(KeyboardKey::KEY_UP) {
                     game.settings_selection = game.settings_selection.saturating_sub(1);
                 }
-                if is_key_pressed(KeyCode::Down) {
+                if rl.is_key_pressed(KeyboardKey::KEY_DOWN) {
                     game.settings_selection = (game.settings_selection + 1).min(1);
                 }
-                if is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::Enter) {
+                if rl.is_key_pressed(KeyboardKey::KEY_SPACE)
+                    || rl.is_key_pressed(KeyboardKey::KEY_ENTER)
+                {
                     match game.settings_selection {
                         0 => {
                             game.show_fps = !game.show_fps;
@@ -661,8 +609,8 @@ async fn main() {
                         _ => {}
                     }
                 }
-                if pointer_pressed() {
-                    let pos = pointer_position();
+                if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
+                    let pos = rl.get_mouse_position();
                     if point_in_rect(pos, CLOSE_BTN_RECT) {
                         game.close_settings();
                     } else if point_in_rect(pos, TOGGLE1_RECT) {
@@ -677,10 +625,12 @@ async fn main() {
                 }
             }
         }
-        let fps = get_fps() as u32;
-        game.draw(fps);
-        next_frame().await;
+
+        let fps = rl.get_fps();
+        let mut d = rl.begin_drawing(&thread);
+        game.draw(&mut d, fps);
     }
+
     game.save_high_score();
     game.save_settings();
 }
