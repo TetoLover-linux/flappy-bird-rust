@@ -21,9 +21,6 @@ build_targets = ["aarch64-linux-android", "armv7-linux-androideabi", "x86_64-lin
 # android_version = 29  # compile SDK (por defecto 29)
 # min_sdk_version = 24  # mínimo recomendado para Rust
 
-[lib]
-crate-type = ["cdylib"]
-
 [profile.release]
 lto = "fat"
 codegen-units = 1
