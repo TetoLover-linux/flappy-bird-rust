@@ -144,7 +144,7 @@ jobs:
       # `x build` produce un APK de debug por defecto. La ruta de salida
       # típica de xbuild es target/x/.../apk/...; se localiza después.
       - name: Build APK (debug, universal) with xbuild
-        run: x build -vv
+        run: x build -v
 
       # ── Localizar el APK generado por xbuild ──────────────────────────────
       - name: Locate generated APK
