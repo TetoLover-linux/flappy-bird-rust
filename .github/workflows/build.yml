@@ -121,6 +121,20 @@ jobs:
       - name: Install cargo-quad-apk
         run: cargo install cargo-quad-apk --locked
 
+      # ── Forzar Cargo.lock v3 para compatibilidad con cargo-quad-apk ───────
+      # cargo-quad-apk 0.1.4 usa una versión de la librería cargo que no
+      # entiende el lockfile v4 (generado por Rust 1.83+). Cambiamos solo la
+      # primera línea (version = 4 → version = 3) sin tocar dependencias.
+      - name: Downgrade Cargo.lock to version 3 (cargo-quad-apk compatibility)
+        run: |
+          if [ -f Cargo.lock ]; then
+            sed -i '1s/version = 4/version = 3/' Cargo.lock
+            echo "── Primera línea del Cargo.lock ajustada:"
+            head -n 1 Cargo.lock
+          else
+            echo "⚠️  Cargo.lock no encontrado, se generará automáticamente."
+          fi
+
       # ── Compila las 3 ABIs y arma el APK universal ───────────────────────
       - name: Build APK (release, universal)
         run: cargo quad-apk build --release
