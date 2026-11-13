@@ -1,4 +1,4 @@
-use raylib::prelude::*;
+use sola_raylib::prelude::*;
 use std::fmt::Write;
 use std::fs;
 
@@ -41,7 +41,6 @@ impl SimpleRng {
     }
     #[inline]
     fn next(&mut self) -> u64 {
-        // LCG (constantes de Numerical Recipes)
         self.0 = self
             .0
             .wrapping_mul(6364136223846793005)
@@ -50,9 +49,8 @@ impl SimpleRng {
     }
     #[inline]
     fn range_f32(&mut self, min: f32, max: f32) -> f32 {
-        // 24 bits de entropía → suficiente precisión para f32
         let bits = (self.next() >> 40) as u32;
-        let t = bits as f32 / (1u32 << 24) as f32; // [0, 1)
+        let t = bits as f32 / (1u32 << 24) as f32;
         min + t * (max - min)
     }
 }
@@ -159,7 +157,6 @@ struct Game {
     show_fps: bool,
     show_rotation: bool,
     settings_selection: usize,
-    // ── Optimizaciones ──────────────────────────────────────────────────────
     rng: SimpleRng,
     ground_texture: RenderTexture2D,
     score_buf: String,
@@ -173,11 +170,13 @@ impl Game {
         let high_score = Self::load_high_score();
         let (show_fps, show_rotation) = Self::load_settings();
 
-        // ── Pre-renderizar el patrón del suelo en una textura (una sola vez) ──
+        // ── Pre-renderizar el patrón del suelo en una textura ───────────────
         let mut ground_tex = rl
             .load_render_texture(thread, GROUND_TEX_WIDTH, GROUND_HEIGHT as u32)
             .expect("Failed to create ground render texture");
         {
+            // `begin_texture_mode` devuelve un guard RAII en sola-raylib.
+            // El bloque asegura que el guard se libere al salir.
             let mut d = rl.begin_texture_mode(thread, &mut ground_tex);
             d.clear_background(Color::BROWN);
             let mut x = 0;
@@ -185,9 +184,8 @@ impl Game {
                 d.draw_rectangle(x, 0, 10, 5, Color::DARKBROWN);
                 x += 20;
             }
-        } // ← drop del RaylibTextureMode → end_texture_mode
+        }
 
-        // ── Semilla para el RNG basada en tiempo ─────────────────────────────
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
@@ -313,7 +311,6 @@ impl Game {
         }
     }
 
-    // ⚠ Ahora recibe `&mut self` para poder reutilizar los buffers de texto
     fn draw_game(&mut self, d: &mut RaylibDrawHandle) {
         d.clear_background(Color::SKYBLUE);
 
@@ -322,9 +319,11 @@ impl Game {
             d.draw_rectangle_rec(pipe.get_bottom_rect(), Color::GREEN);
         }
 
-        // ── Suelo cacheado: 1 quad en vez de ~20 rectángulos ─────────────────
+        // ── Suelo cacheado: se dibuja la textura interna del RenderTexture2D
+        //    Acceso explícito a `.texture` para evitar ambigüedades de
+        //    conversión entre versiones de la API.
         d.draw_texture_rec(
-            &self.ground_texture,         // ← RenderTexture2D implementa AsRef<Texture2D>
+            &self.ground_texture.texture,
             Rectangle::new(
                 self.ground_scroll,
                 0.0,
@@ -337,7 +336,6 @@ impl Game {
 
         self.bird.draw(d);
 
-        // ── Marcador (buffers reutilizables, cero asignaciones por frame) ────
         self.score_buf.clear();
         let _ = write!(&mut self.score_buf, "Score: {}", self.score);
         d.draw_text(&self.score_buf, 10, 10, 20, Color::WHITE);
@@ -378,7 +376,6 @@ impl Game {
                     28,
                     Color::RED,
                 );
-                // Reutiliza los buffers ya poblados arriba
                 d.draw_text(
                     &self.score_buf,
                     SCREEN_WIDTH / 2 - 45,
@@ -428,7 +425,6 @@ impl Game {
 
         d.draw_text("SETTINGS", 130, 185, 24, Color::WHITE);
 
-        // Botón X
         d.draw_rectangle_rec(CLOSE_BTN_RECT, Color::new(160, 50, 50, 255));
         d.draw_rectangle_lines_ex(CLOSE_BTN_RECT, 2.0, Color::LIGHTGRAY);
         let cx = CLOSE_BTN_RECT.x as i32;
@@ -437,7 +433,6 @@ impl Game {
         d.draw_line(cx + 9, cy + 9, cx + cs - 9, cy + cs - 9, Color::WHITE);
         d.draw_line(cx + cs - 9, cy + 9, cx + 9, cy + cs - 9, Color::WHITE);
 
-        // Fila 1: FPS
         let sel1 = self.settings_selection == 0;
         let row1_bg = if sel1 {
             Color::new(115, 115, 115, 255)
@@ -463,7 +458,6 @@ impl Game {
             Color::WHITE,
         );
 
-        // Fila 2: Rotación
         let sel2 = self.settings_selection == 1;
         let row2_bg = if sel2 {
             Color::new(115, 115, 115, 255)
@@ -506,7 +500,6 @@ impl Game {
             self.draw_settings_panel(d);
         }
 
-        // ── Overlays (buffers reutilizables) ────────────────────────────────
         if self.show_fps {
             self.fps_buf.clear();
             let _ = write!(&mut self.fps_buf, "FPS: {}", fps);
@@ -537,9 +530,10 @@ fn point_in_rect(point: Vector2, rect: Rectangle) -> bool {
 
 // ── Main ────────────────────────────────────────────────────────────────────
 fn main() {
-    let (mut rl, thread) = raylib::init()
+    // `sola_raylib::init()` reemplaza a `raylib::init()`.
+    let (mut rl, thread) = sola_raylib::init()
         .size(SCREEN_WIDTH, SCREEN_HEIGHT)
-        .title("Flappy Bird - raylib-rs (optimized)")
+        .title("Flappy Bird - sola-raylib")
         .build();
 
     rl.set_window_size(SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -550,7 +544,6 @@ fn main() {
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
 
-        // ── ESC contextual ──────────────────────────────────────────────────
         if rl.is_key_pressed(KeyboardKey::KEY_ESCAPE) {
             if game.state == GameState::Settings {
                 game.close_settings();
@@ -559,7 +552,6 @@ fn main() {
             }
         }
 
-        // ── Apertura de ajustes (S o clic en engranaje) ─────────────────────
         if game.state != GameState::Settings {
             let s_pressed = rl.is_key_pressed(KeyboardKey::KEY_S);
             let click_on_gear = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
@@ -569,7 +561,6 @@ fn main() {
             }
         }
 
-        // ── Lógica por estado ───────────────────────────────────────────────
         match game.state {
             GameState::Ready => {
                 if is_flap_input(&rl) {
@@ -633,4 +624,4 @@ fn main() {
 
     game.save_high_score();
     game.save_settings();
-}
+        }
