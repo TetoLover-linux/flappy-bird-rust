@@ -140,6 +140,13 @@ jobs:
           echo "ANDROID_ABI=arm64-v8a" >> $GITHUB_ENV
           echo "ANDROID_PLATFORM=android-29" >> $GITHUB_ENV
 
+      # Evitar inyección de los flags de escritorio dentro de la compilación para Android.
+      - name: Neutralize host-specific C/C++ flags
+        run: |
+          echo "CFLAGS=" >> $GITHUB_ENV
+          echo "CXXFLAGS=" >> $GITHUB_ENV
+          echo "Cleared CFLAGS and CXXFLAGS to prevent host flags leaking into Android cross-compilation."
+
       # ── Compilar las ABIs y empaquetar el APK con xbuild ──────────────────
       # `x build` produce un APK de debug por defecto. La ruta de salida
       # típica de xbuild es target/x/.../apk/...; se localiza después.
