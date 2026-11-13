@@ -1,4 +1,4 @@
-name: Build Cross-Platform
+name: Build
 
 on:
   workflow_dispatch:
@@ -10,8 +10,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  ANDROID_NDK_VERSION: "25.2.9519653"
-  ANDROID_BUILD_TOOLS: "34.0.0"
 
 jobs:
   # ════════════════════════════════════════════════════════════════════════════
@@ -59,134 +57,4 @@ jobs:
         with:
           name: flappy_bird-linux
           path: target/release/flappy_bird
-          if-no-files-found: error
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Android: compila cdylib y empaqueta un APK universal con `xbuild`.
-  # xbuild reemplaza a cargo-quad-apk y no exige la presencia de `miniquad`.
-  # Se mantiene Rust 1.82.0 para garantizar Cargo.lock v3, y el APK se firma
-  # con una keystore de debug para sideload.
-  # ════════════════════════════════════════════════════════════════════════════
-  build-android:
-    name: Build Android APK
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ── Toolchain 1.82.0 (lockfile v3) + targets Android ──────────────────
-      - name: Install Rust 1.82.0 (Android targets)
-        uses: dtolnay/rust-toolchain@1.82.0
-        with:
-          targets: |
-            aarch64-linux-android
-            armv7-linux-androideabi
-            x86_64-linux-android
-
-      - name: Cache Cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ". -> target"
-          key: android-rust182
-
-      - name: Setup JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      # El runner ubuntu-latest ya incluye ANDROID_HOME y sdkmanager.
-      - name: Verify Android SDK
-        run: |
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --version
-
-      # ── Instalación de NDK, plataformas y build-tools ──────────────────────
-      - name: Install NDK, platforms and build-tools
-        run: |
-          set -euo pipefail
-          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKMANAGER" --licenses > /dev/null || true
-          "$SDKMANAGER" --install \
-            "ndk;${ANDROID_NDK_VERSION}" \
-            "platforms;android-34" \
-            "platforms;android-29" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "build-tools;29.0.0"
-
-      - name: Configure Android environment
-        run: |
-          echo "NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}" >> "$GITHUB_PATH"
-
-      - name: Install Android build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake \
-            libclang-dev \
-            clang \
-            curl \
-            libgl1-mesa-dev \
-            libglu1-mesa-dev
-
-      # ── Instalar xbuild (reemplaza a cargo-quad-apk) ──────────────────────
-      - name: Install xbuild
-        run: cargo install xbuild --locked
-
-      - name: Configure CMake toolchain for Android
-        run: |
-          echo "CMAKE_TOOLCHAIN_FILE=${NDK_HOME}/build/cmake/android.toolchain.cmake" >> $GITHUB_ENV
-          echo "ANDROID_ABI=arm64-v8a" >> $GITHUB_ENV
-          echo "ANDROID_PLATFORM=android-29" >> $GITHUB_ENV
-
-      # Evitar inyección de los flags de escritorio dentro de la compilación para Android.
-      - name: Neutralize host-specific C/C++ flags
-        run: |
-          echo "CFLAGS=" >> $GITHUB_ENV
-          echo "CXXFLAGS=" >> $GITHUB_ENV
-          echo "Cleared CFLAGS and CXXFLAGS to prevent host flags leaking into Android cross-compilation."
-
-      # ── Compilar las ABIs y empaquetar el APK con xbuild ──────────────────
-      # `x build` produce un APK de debug por defecto. La ruta de salida
-      # típica de xbuild es target/x/.../apk/...; se localiza después.
-      - name: Build APK (debug, universal) with xbuild
-        run: x build -v
-
-      # ── Localizar el APK generado por xbuild ──────────────────────────────
-      - name: Locate generated APK
-        id: locate_apk
-        run: |
-          set -euo pipefail
-          APK="$(find target -name '*.apk' -type f | head -n 1)"
-          if [ -z "$APK" ]; then
-            echo "❌ No se encontró ningún APK generado por xbuild."
-            exit 1
-          fi
-          echo "── APK encontrado: $APK"
-          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
-
-      # ── Firmar el APK (debug key generada en el runner) ────────────────────
-      - name: Sign APK
-        run: |
-          set -euo pipefail
-          BT="${ANDROID_HOME}/build-tools/${ANDROID_BUILD_TOOLS}"
-          RAW_APK="${{ steps.locate_apk.outputs.apk_path }}"
-          KEYSTORE="${RUNNER_TEMP}/flappy-debug.keystore"
-          keytool -genkeypair -v \
-            -keystore "${KEYSTORE}" \
-            -storepass android -alias flappybird -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Flappy Bird Debug, OU=CI, O=TetoLover-linux, C=AR"
-          "${BT}/zipalign" -f 4 "${RAW_APK}" "${RUNNER_TEMP}/aligned.apk"
-          "${BT}/apksigner" sign \
-            --ks "${KEYSTORE}" --ks-pass pass:android --key-pass pass:android \
-            --out "flappy_bird-android.apk" "${RUNNER_TEMP}/aligned.apk"
-          "${BT}/apksigner" verify --print-certs "flappy_bird-android.apk"
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: flappy_bird-android-apk
-          path: flappy_bird-android.apk
           if-no-files-found: error
