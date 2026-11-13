@@ -115,11 +115,13 @@ jobs:
       - name: Install NDK and build-tools
         run: |
           yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install \
+            "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install \
             "ndk;${{ env.ANDROID_NDK_VERSION }}" \
             "platforms;android-34" \
-            "build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
-
+            "platforms;android-29"        # 👈 Añade esta línea
+            "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" \
+            "build-tools;29.0.0"         # 👈 Opcional pero recomendado
+      
       - name: Configure Android environment
         run: |
           echo "NDK_HOME=${ANDROID_HOME}/ndk/${{ env.ANDROID_NDK_VERSION }}" >> "$GITHUB_ENV"
